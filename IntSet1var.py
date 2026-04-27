@@ -1,311 +1,269 @@
-class Node:
-    """Узел односвязного списка для цепочек хеш-таблицы."""
-    __slots__ = ('value', 'next')
-
-    def __init__(self, value: int, next_node: 'Node' = None):
-        self.value = value
-        self.next = next_node
-
-
 class IntSet:
-    """Множество целых чисел на базе хеш-таблицы с цепочками."""
+    # Множество целых чисел на основе хеш-таблицы с цепочками
 
-    def __init__(self, initial_capacity: int = 8, load_factor: float = 0.75):
-        if initial_capacity < 1:
-            raise ValueError("Capacity must be > 0")
+    def __init__(self, initial_capacity=8, load_factor=0.75):
+        # Конструктор. Создает пустую хеш-таблицу
         self._capacity = initial_capacity
-        self._size = 0
         self._load_factor = load_factor
-        # Массив бакетов: каждый элемент либо None, либо голова связного списка
-        self._buckets = [None] * self._capacity
+        self._size = 0
+        # _buckets: список цепочек, каждая цепочка - список чисел
+        self._buckets = [[] for _ in range(self._capacity)]
 
-    def _hash_index(self, value: int) -> int:
-        """Вычисляет индекс корзины для значения."""
-        return value % self._capacity
+    def _hash(self, value):
+        # Хеш-функция для целого числа
+        return abs(value) % self._capacity
 
-    def add(self, value: int) -> None:
-        """Добавляет число в множество. Если уже есть — ничего не делает."""
-        idx = self._hash_index(value)
-        current = self._buckets[idx]
+    def _should_rehash(self):
+        # Проверяет, нужно ли расширять таблицу
+        return self._size / self._capacity >= self._load_factor
 
-        # Проверяем, есть ли уже такое значение в цепочке
-        while current is not None:
-            if current.value == value:
-                return  # уже существует, ничего не делаем
-            current = current.next
+    def add(self, value):
+        # Добавить число. Если уже есть, ничего не менять
+        if not isinstance(value, int):
+            raise TypeError("IntSet хранит только целые числа")
+        index = self._hash(value)
+        bucket = self._buckets[index]
+        if value not in bucket:
+            bucket.append(value)
+            self._size += 1
+            if self._should_rehash():
+                self.rehash()
 
-        # Добавляем новый узел в начало цепочки
-        new_node = Node(value, self._buckets[idx])
-        self._buckets[idx] = new_node
-        self._size += 1
+    def remove(self, value):
+        # Удалить число. Если нет, ничего не менять
+        if not isinstance(value, int):
+            raise TypeError("IntSet хранит только целые числа")
+        index = self._hash(value)
+        bucket = self._buckets[index]
+        if value in bucket:
+            bucket.remove(value)
+            self._size -= 1
 
-        # Проверяем коэффициент заполнения
-        if self._size / self._capacity > self._load_factor:
-            self.rehash()
+    def contains(self, value):
+        # Проверить наличие числа. Возвращает bool
+        if not isinstance(value, int):
+            return False
+        index = self._hash(value)
+        bucket = self._buckets[index]
+        return value in bucket
 
-    def remove(self, value: int) -> None:
-        """Удаляет число из множества. Если отсутствует — ничего не делает."""
-        idx = self._hash_index(value)
-        current = self._buckets[idx]
-        prev = None
-
-        while current is not None:
-            if current.value == value:
-                if prev is None:
-                    # Удаляем голову цепочки
-                    self._buckets[idx] = current.next
-                else:
-                    prev.next = current.next
-                self._size -= 1
-                return
-            prev = current
-            current = current.next
-
-    def contains(self, value: int) -> bool:
-        """Проверяет, содержится ли число в множестве."""
-        idx = self._hash_index(value)
-        current = self._buckets[idx]
-        while current is not None:
-            if current.value == value:
-                return True
-            current = current.next
-        return False
-
-    def size(self) -> int:
-        """Возвращает количество элементов в множестве."""
+    def size(self):
+        # Количество элементов
         return self._size
 
-    def clear(self) -> None:
-        """Удаляет все элементы, сохраняя текущую ёмкость таблицы."""
-        self._buckets = [None] * self._capacity
+    def clear(self):
+        # Удалить все элементы
+        self._capacity = 8
         self._size = 0
+        self._buckets = [[] for _ in range(self._capacity)]
 
-    def rehash(self) -> None:
-        """Увеличивает размер внутренней таблицы вдвое и перераспределяет элементы."""
-        new_capacity = self._capacity * 2
-        new_buckets = [None] * new_capacity
+    def rehash(self):
+        # Увеличить внутреннюю таблицу и перераспределить элементы
+        old_buckets = self._buckets
+        self._capacity *= 2
+        self._size = 0
+        self._buckets = [[] for _ in range(self._capacity)]
+        for bucket in old_buckets:
+            for value in bucket:
+                self.add(value)
 
-        # Обходим все цепочки старой таблицы
-        for head in self._buckets:
-            current = head
-            while current is not None:
-                # Сохраняем следующий узел, чтобы не потерять при переносе
-                nxt = current.next
-                # Вставляем в новую таблицу в начало цепочки
-                new_idx = current.value % new_capacity
-                current.next = new_buckets[new_idx]
-                new_buckets[new_idx] = current
-                current = nxt
-
-        self._buckets = new_buckets
-        self._capacity = new_capacity
+    def __str__(self):
+        # Строковое представление для удобства отладки
+        elements = []
+        for bucket in self._buckets:
+            elements.extend(bucket)
+        return "{" + ", ".join(str(e) for e in elements) + "}"
 
 
-# Тесты
-
-def test_add():
-    s = IntSet(4, 0.75)  # маленький размер для проверки рехеширования
-    s.add(5)
-    assert s.size() == 1
-    assert s.contains(5) == True
-
-    s.add(7)
-    assert s.size() == 2
-    assert s.contains(7) == True
-
-    # Дубликат
-    s.add(5)
-    assert s.size() == 2  # размер не изменился
-    assert s.contains(5) == True
-
-    # Добавление отрицательного
-    s.add(-3)
-    assert s.contains(-3) == True
-    assert s.size() == 3
-
-    print("test_add passed")
-
-
-def test_remove():
+# Точка входа с демонстрацией всех методов
+if __name__ == "__main__":
+    print("=== Демонстрация IntSet ===")
     s = IntSet()
-    s.add(10)
-    s.add(20)
-    s.add(30)
-    s.remove(20)
-    assert s.size() == 2
-    assert s.contains(20) == False
-    assert s.contains(10) == True
-    assert s.contains(30) == True
-
-    # Удаление несуществующего
-    s.remove(100)
-    assert s.size() == 2
-
-    # Удаление из пустой цепочки
-    s.clear()
-    s.remove(5)  # не должно быть ошибок
-    assert s.size() == 0
-
-    # Удаление головы цепочки
-    s.add(1)
-    s.add(2)
-    s.remove(1)
-    assert s.contains(1) == False
-    assert s.size() == 1
-
-    # Удаление последнего элемента
-    s.remove(2)
-    assert s.size() == 0
-
-    print("test_remove passed")
-
-
-def test_contains():
-    s = IntSet()
-    assert s.contains(42) == False
-    s.add(42)
-    assert s.contains(42) == True
-    s.remove(42)
-    assert s.contains(42) == False
-
-    # Проверка на коллизиях (один бакет)
-    s2 = IntSet(1)  # все элементы в одну корзину из-за деления по модулю 1? capacity=1 => все индексы 0
-    # Но capacity=1, индекс будет всегда 0, коллизии разрешаются цепочкой
-    s2.add(100)
-    s2.add(200)
-    assert s2.contains(100) == True
-    assert s2.contains(200) == True
-    assert s2.contains(300) == False
-
-    print("test_contains passed")
-
-
-def test_size():
-    s = IntSet()
-    assert s.size() == 0
-    s.add(1)
-    assert s.size() == 1
-    s.add(2)
-    s.add(3)
-    assert s.size() == 3
-    s.remove(2)
-    assert s.size() == 2
-    s.clear()
-    assert s.size() == 0
-
-    print("test_size passed")
-
-
-def test_clear():
-    s = IntSet()
-    s.add(1)
-    s.add(2)
-    s.add(3)
-    s.clear()
-    assert s.size() == 0
-    assert s.contains(1) == False
-    assert s.contains(2) == False
-    assert s.contains(3) == False
-
-    # Проверка, что после clear можно снова добавлять
-    s.add(4)
-    assert s.size() == 1
-    assert s.contains(4) == True
-
-    # clear пустого множества
-    s.clear()
-    s.clear()
-    assert s.size() == 0
-
-    print("test_clear passed")
-
-
-def test_rehash():
-    s = IntSet(4, 0.75)  # capacity=4, threshold=3
-    # Добавляем элементы, чтобы вызвать автоматический rehash
-    s.add(1)
-    s.add(2)
-    s.add(3)  # 3/4 = 0.75, не превышает (превышение > 0.75), поэтому rehash не вызывается
-    assert s._capacity == 4
-    s.add(4)  # 4/4 = 1.0 > 0.75 => должен быть rehash
-    assert s._capacity == 8  # удвоение
-    assert s.size() == 4
-    # Проверяем наличие всех элементов
-    for val in [1, 2, 3, 4]:
-        assert s.contains(val) == True
-
-    # Ручной вызов rehash при нескольких элементах
-    s2 = IntSet(2, 0.75)
-    s2.add(10)
-    s2.add(20)  # 2/2 = 1.0 > 0.75 => rehash до 4
-    assert s2._capacity == 4
-    s2.rehash()  # явный вызов, capacity станет 8
-    assert s2._capacity == 8
-    assert s2.contains(10) == True
-    assert s2.contains(20) == True
-    assert s2.size() == 2
-
-    print("test_rehash passed")
-
-
-def run_tests():
-    test_add()
-    test_remove()
-    test_contains()
-    test_size()
-    test_clear()
-    test_rehash()
-    print("All tests passed!\n")
-
-
-
-# Демонстрация в main
-
-def main():
-    # Показываем создание и базовые операции
-    print("=== IntSet Demonstration ===")
-    s = IntSet()
-    print(f"New set, size: {s.size()}")
-
+    
+    print("\n1. add()")
     s.add(5)
     s.add(7)
-    s.add(5)  # дубликат
-    print(f"Added 5, 7, 5. Size: {s.size()}")
-    print(f"contains(7): {s.contains(7)}")
-    print(f"contains(3): {s.contains(3)}")
-
+    s.add(5)  # дубликат, не добавится
+    print(f"После добавления 5, 7, 5: {s}")
+    
+    print("\n2. contains()")
+    print(f"contains(7) = {s.contains(7)}")
+    print(f"contains(3) = {s.contains(3)}")
+    
+    print("\n3. size()")
+    print(f"Размер: {s.size()}")
+    
+    print("\n4. remove()")
     s.remove(7)
-    print(f"After remove(7): size={s.size()}, contains(7)={s.contains(7)}")
-
+    s.remove(10)  # нет в множестве
+    print(f"После удаления 7 и 10: {s}")
+    print(f"Размер: {s.size()}")
+    
+    print("\n5. rehash()")
+    for i in range(20):
+        s.add(i)
+    print(f"После добавления 20 элементов: размер={s.size()}, capacity={s._capacity}")
+    
+    print("\n6. clear()")
     s.clear()
-    print(f"After clear: size={s.size()}")
+    print(f"После clear(): {s}, размер={s.size()}")
 
-    # Демонстрация rehash с маленьким начальным размером
-    print("\n--- Rehash demonstration ---")
-    s2 = IntSet(2, 0.75)   # ёмкость 2, порог 0.75
-    print(f"Initial capacity: {s2._capacity}")
-    values = [1, 2, 3]
-    for v in values:
-        s2.add(v)
-        print(f"Added {v}, size={s2.size()}, capacity={s2._capacity}")
 
-    print(f"Contains all?: {all(s2.contains(v) for v in values)}")
+# ============ ТЕСТЫ ============
+import unittest
 
-    # Явный rehash (удвоение ёмкости)
-    s2.rehash()
-    print(f"After manual rehash: capacity={s2._capacity}, size={s2.size()}")
-    print(f"Contains all?: {all(s2.contains(v) for v in values)}")
 
-    # Покажем работу с отрицательными числами
-    print("\n--- Negative numbers ---")
-    s3 = IntSet()
-    s3.add(-10)
-    s3.add(0)
-    s3.add(-10)
-    print(f"Size: {s3.size()}, contains(-10): {s3.contains(-10)}, contains(0): {s3.contains(0)}")
-    s3.remove(-10)
-    print(f"After remove(-10): size={s3.size()}, contains(-10)={s3.contains(-10)}")
+class TestIntSet(unittest.TestCase):
+
+    def setUp(self):
+        # Конструктор тестируется неявно через setUp
+        self.int_set = IntSet()
+
+    # --- add ---
+    def test_add_new_element(self):
+        s = IntSet()
+        s.add(10)
+        self.assertTrue(s.contains(10))
+        self.assertEqual(s.size(), 1)
+
+    def test_add_duplicate(self):
+        s = IntSet()
+        s.add(10)
+        s.add(10)
+        self.assertEqual(s.size(), 1)
+
+    def test_add_negative(self):
+        s = IntSet()
+        s.add(-5)
+        self.assertTrue(s.contains(-5))
+
+    def test_add_triggers_rehash(self):
+        s = IntSet(initial_capacity=4, load_factor=0.6)
+        s.add(1)
+        s.add(2)  # 2/4 = 0.5 < 0.6 -> без rehash
+        self.assertEqual(s._capacity, 4)
+        s.add(3)  # 3/4 = 0.75 >= 0.6 -> rehash
+        self.assertEqual(s._capacity, 8)
+
+    def test_add_invalid_type(self):
+        s = IntSet()
+        with self.assertRaises(TypeError):
+            s.add("строка")
+
+    # --- remove ---
+    def test_remove_existing(self):
+        s = IntSet()
+        s.add(10)
+        s.remove(10)
+        self.assertFalse(s.contains(10))
+        self.assertEqual(s.size(), 0)
+
+    def test_remove_non_existing(self):
+        s = IntSet()
+        s.add(10)
+        s.remove(20)
+        self.assertEqual(s.size(), 1)
+
+    def test_remove_from_bucket_with_collision(self):
+        s = IntSet(initial_capacity=4)
+        # Добавляем значения с одинаковым хешем
+        s.add(0)
+        s.add(4)  # хеш 0 при capacity=4
+        s.remove(0)
+        self.assertFalse(s.contains(0))
+        self.assertTrue(s.contains(4))
+
+    def test_remove_invalid_type(self):
+        s = IntSet()
+        with self.assertRaises(TypeError):
+            s.remove("строка")
+
+    # --- contains ---
+    def test_contains_true(self):
+        s = IntSet()
+        s.add(42)
+        self.assertTrue(s.contains(42))
+
+    def test_contains_false(self):
+        s = IntSet()
+        self.assertFalse(s.contains(99))
+
+    def test_contains_negative(self):
+        s = IntSet()
+        s.add(-1)
+        self.assertTrue(s.contains(-1))
+        self.assertFalse(s.contains(1))
+
+    def test_contains_invalid_type(self):
+        s = IntSet()
+        self.assertFalse(s.contains("строка"))
+
+    # --- size ---
+    def test_size_empty(self):
+        self.assertEqual(self.int_set.size(), 0)
+
+    def test_size_after_operations(self):
+        s = IntSet()
+        s.add(1)
+        s.add(2)
+        s.add(2)
+        s.remove(1)
+        self.assertEqual(s.size(), 1)
+
+    def test_size_after_clear(self):
+        s = IntSet()
+        s.add(1)
+        s.clear()
+        self.assertEqual(s.size(), 0)
+
+    # --- clear ---
+    def test_clear_removes_all(self):
+        s = IntSet()
+        s.add(1)
+        s.add(2)
+        s.clear()
+        self.assertEqual(s.size(), 0)
+        self.assertFalse(s.contains(1))
+
+    def test_clear_resets_capacity(self):
+        s = IntSet()
+        s.add(1)
+        s.rehash()  # увеличиваем capacity
+        old_cap = s._capacity
+        s.clear()
+        self.assertEqual(s._capacity, 8)
+        self.assertLess(s._capacity, old_cap)
+
+    # --- rehash ---
+    def test_rehash_doubles_capacity(self):
+        s = IntSet()
+        old_cap = s._capacity
+        s.rehash()
+        self.assertEqual(s._capacity, old_cap * 2)
+
+    def test_rehash_preserves_elements(self):
+        s = IntSet()
+        elements = [5, 10, 15, 20]
+        for e in elements:
+            s.add(e)
+        s.rehash()
+        for e in elements:
+            self.assertTrue(s.contains(e))
+        self.assertEqual(s.size(), len(elements))
+
+    def test_rehash_handles_collisions(self):
+        s = IntSet(initial_capacity=2)
+        s.add(0)
+        s.add(2)  # коллизия: хеш 0
+        s.add(1)
+        s.add(3)  # коллизия: хеш 1
+        s.rehash()
+        self.assertTrue(s.contains(0))
+        self.assertTrue(s.contains(2))
+        self.assertTrue(s.contains(1))
+        self.assertTrue(s.contains(3))
+        self.assertEqual(s.size(), 4)
+
 
 if __name__ == "__main__":
-    run_tests()
-    main()
+    unittest.main()
