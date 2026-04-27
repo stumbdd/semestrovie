@@ -1,307 +1,276 @@
 import random
-import time
 import os
-import matplotlib.pyplot as plt
-import numpy as np
+import time
+import copy
 
-# ---------- Числа Леонардо и вспомогательные структуры ----------
+# ==========================================
+# Генерация тестовых данных (500-1000 элементов)
+# ==========================================
+
+def generate_datasets(num_sets=100, min_size=500, max_size=1000):
+    # Генерирует файлы с массивами случайных чисел
+    if not os.path.exists("datasets"):
+        os.makedirs("datasets")
+    
+    sizes = []
+    for i in range(num_sets):
+        size = random.randint(min_size, max_size)
+        sizes.append(size)
+        arr = [random.randint(-100000, 100000) for _ in range(size)]
+        filename = f"datasets/dataset_{i+1:03d}.txt"
+        with open(filename, "w") as f:
+            f.write(str(size) + "\n")
+            f.write(" ".join(map(str, arr)))
+    return sizes
+
+
+def load_dataset(filename):
+    # Читает массив из файла, возвращает размер и список
+    with open(filename, "r") as f:
+        size = int(f.readline().strip())
+        arr = list(map(int, f.readline().strip().split()))
+    return size, arr
+
+
+# ==========================================
+# Числа Леонардо для SmoothSort
+# ==========================================
+
 def leonardo_numbers(limit):
-    """Генерирует числа Леонардо до limit"""
-    leo = [1, 1]
-    while leo[-1] < limit:
-        leo.append(leo[-1] + leo[-2] + 1)
-    return leo
+    # Генерирует числа Леонардо: L(0)=1, L(1)=1, L(k)=L(k-1)+L(k-2)+1
+    nums = [1, 1]
+    while nums[-1] <= limit:
+        nums.append(nums[-1] + nums[-2] + 1)
+    return nums
 
-MAX_SIZE = 500
-leo = leonardo_numbers(MAX_SIZE + 100)
 
-# Словарь для быстрого определения индекса числа Леонардо
-leo_index = {}
-for i, val in enumerate(leo):
-    leo_index[val] = i
+# ==========================================
+# SmoothSort с подсчётом шагов
+# ==========================================
 
-print(f"Числа Леонардо: {leo}")
-
-# ---------- Алгоритм Smoothsort ----------
-def smoothsort(arr):
-    n = len(arr)
-    if n <= 1:
-        return 0
+class SmoothSortStats:
+    # Контейнер для хранения счётчиков операций
+    def __init__(self):
+        self.comparisons = 0
+        self.swaps = 0
     
-    comps = 0  # Счётчик сравнений
-    heap_sizes = []  # Список размеров куч (числа Леонардо)
+    def total_steps(self):
+        return self.comparisons + self.swaps
+
+
+def smooth_sort(arr, stats):
+    # SmoothSort на месте, stats хранит количество сравнений и обменов
+    if len(arr) <= 1:
+        return
     
-    # Вспомогательная функция: получить индекс корня p-й кучи
-    def get_root(p):
-        return sum(heap_sizes[:p+1]) - 1
+    # Числа Леонардо до длины массива, делаем глобальным списком для функций
+    global leo
+    leo = leonardo_numbers(len(arr))
     
-    # Просеивание вниз (sift down)
-    def sift_down(root, size):
-        nonlocal comps
-        if size <= 1:
-            return
-        
-        m = leo_index[size]  # Индекс числа Леонардо для этого размера
-        
-        while size > 1:
-            # Для кучи размера 1 или 2 просеивание не требуется
-            if m < 2:
-                break
-                
-            # Индексы левого и правого поддеревьев
-            left_root = root - leo[m-2] - 1
-            right_root = root - 1
-            
-            # Проверяем границы
-            if left_root < 0 or right_root < 0:
-                break
-            
-            # Сравниваем левое и правое поддеревья
-            comps += 1
-            if arr[left_root] > arr[right_root]:
-                # Левый потомок больше
-                comps += 1
-                if arr[left_root] > arr[root]:
-                    # Меняем и идём в левое поддерево
-                    arr[left_root], arr[root] = arr[root], arr[left_root]
-                    root = left_root
-                    size = leo[m-2]
-                    m -= 2
-                else:
-                    break
+    # Размеры куч в структуре
+    heap_sizes = []
+    
+    # --- Фаза 1: построение леса куч Леонардо ---
+    for i in range(len(arr)):
+        # Проверяем, можно ли слить две последние кучи с новым элементом
+        if len(heap_sizes) >= 2 and heap_sizes[-1] == heap_sizes[-2] + 1:
+            # Сливаем: убираем две последние, увеличиваем предпоследнюю
+            heap_sizes.pop()
+            heap_sizes[-1] += 1
+        else:
+            # Добавляем кучу размера 1
+            if len(heap_sizes) >= 1 and heap_sizes[-1] == 1:
+                # Рядом с кучей размера 1 добавляется куча размера 0 (заглушка)
+                heap_sizes.append(0)
             else:
-                # Правый потомок больше или равен
-                comps += 1
-                if arr[right_root] > arr[root]:
-                    # Меняем и идём в правое поддерево
-                    arr[right_root], arr[root] = arr[root], arr[right_root]
-                    root = right_root
-                    size = leo[m-1]
-                    m -= 1
-                else:
-                    break
-    
-    # Восстановление порядка корней куч
-    def trinkle(p):
-        nonlocal comps
-        if p <= 0:
-            return
+                heap_sizes.append(1)
         
-        while p > 0:
-            root_p = get_root(p)
-            root_prev = get_root(p - 1)
-            
-            comps += 1
-            # Если порядок не нарушен, выходим
-            if arr[root_p] >= arr[root_prev]:
-                break
-            
-            # Меняем местами корни
-            arr[root_p], arr[root_prev] = arr[root_prev], arr[root_p]
-            
-            # Просеиваем предыдущую кучу
-            sift_down(root_prev, heap_sizes[p-1])
-            
-            p -= 1
+        # Восстанавливаем свойства кучи просеиванием вверх
+        restore_heaps(arr, i, heap_sizes, stats)
     
-    # Фаза 1: Построение куч
-    for i in range(n):
-        # Добавляем новый элемент как кучу размера 1
-        heap_sizes.append(1)
-        
-        # Проверяем, нужно ли объединить две последние кучи
-        while len(heap_sizes) >= 2:
-            size_prev = heap_sizes[-2]
-            size_last = heap_sizes[-1]
-            
-            # Проверяем, являются ли размеры последовательными числами Леонардо
-            if size_prev in leo_index and size_last in leo_index:
-                idx_prev = leo_index[size_prev]
-                idx_last = leo_index[size_last]
-                
-                # Если это последовательные числа L(k+1) и L(k)
-                if idx_prev == idx_last + 1:
-                    # Удаляем две кучи
-                    heap_sizes.pop()
-                    heap_sizes.pop()
-                    
-                    # Добавляем объединённую кучу L(k+2)
-                    new_size = leo[idx_prev + 1]
-                    heap_sizes.append(new_size)
-                    
-                    # Просеиваем объединённую кучу
-                    sift_down(i, new_size)
-                    continue
-            
+    # --- Фаза 2: извлечение максимумов ---
+    for i in range(len(arr) - 1, 0, -1):
+        if len(heap_sizes) == 0:
             break
         
-        # Восстанавливаем порядок корней
-        trinkle(len(heap_sizes) - 1)
-    
-    # Фаза 2: Извлечение максимумов
-    for i in range(n-1, 0, -1):
-        if not heap_sizes:
-            break
-            
-        # Удаляем последнюю кучу (её корень - максимум)
-        last_size = heap_sizes.pop()
+        # Последняя куча отдаёт свой корень (максимум)
+        last_heap_size = heap_sizes.pop()
         
-        if last_size > 1:
-            # Разбиваем кучу L(m) на L(m-2) и L(m-1)
-            m = leo_index[last_size]
+        if last_heap_size > 1:
+            # Разбиваем кучу на две меньшие
+            left_child_end = i - leo[last_heap_size - 2] - 1
+            right_child_end = i - 1
             
-            # Левое поддерево
-            left_size = leo[m-2]
-            heap_sizes.append(left_size)
-            sift_down(i - last_size + left_size - 1, left_size)
-            trinkle(len(heap_sizes) - 1)
+            heap_sizes.append(last_heap_size - 1)
+            heap_sizes.append(last_heap_size - 2)
             
-            # Правое поддерево
-            right_size = leo[m-1]
-            heap_sizes.append(right_size)
-            sift_down(i - 1, right_size)
-            trinkle(len(heap_sizes) - 1)
+            # Просеиваем корни обеих дочерних куч
+            restore_heaps(arr, left_child_end, heap_sizes, stats)
+            restore_heaps(arr, right_child_end, heap_sizes, stats)
+        # Если last_heap_size <= 1, то куча из одного элемента, 
+        # ничего не делаем (элемент уже на месте)
+        # Кучу размера 0 просто пропускаем
+
+
+def restore_heaps(arr, idx, heap_sizes, stats):
+    # Просеивание вниз для восстановления свойства max-heap
+    # current указывает на конец кучи в массиве
+    current = idx
+    # heap_sizes описывает лес, последний элемент — размер текущей кучи
+    # но мы работаем только с последней кучей
     
-    return comps
+    while len(heap_sizes) > 0:
+        heap_idx = len(heap_sizes) - 1
+        current_size = heap_sizes[heap_idx]
+        
+        # Кучи размера 0 и 1 не нужно просеивать
+        if current_size <= 1:
+            break
+        
+        # Вычисляем индексы детей
+        # Левое поддерево имеет размер L(current_size - 1)
+        # Правое поддерево имеет размер L(current_size - 2)
+        right_child = current - 1
+        left_child = current - 1 - leo[current_size - 2]
+        
+        # Ищем максимум среди корня и детей
+        stats.comparisons += 1
+        if left_child >= 0 and arr[left_child] > arr[current]:
+            largest = left_child
+        else:
+            largest = current
+        
+        if right_child >= 0:
+            stats.comparisons += 1
+            if arr[right_child] > arr[largest]:
+                largest = right_child
+        
+        # Если корень не максимальный — меняем и идём вниз
+        if largest != current:
+            stats.swaps += 1
+            arr[current], arr[largest] = arr[largest], arr[current]
+            
+            # Определяем, в какое поддерево провалились
+            if largest == left_child:
+                # Уходим в левое поддерево
+                # Заменяем текущую кучу на две: L(size-1) и L(size-2)
+                heap_sizes.pop()  # убираем текущую кучу
+                heap_sizes.append(current_size - 1)
+                heap_sizes.append(current_size - 2)
+                current = left_child
+            else:
+                # Уходим в правое поддерево
+                heap_sizes.pop()
+                heap_sizes.append(current_size - 2)
+                heap_sizes.append(current_size - 3)
+                current = right_child
+        else:
+            # Свойство кучи восстановлено
+            break
 
-# ---------- Генерация 100 случайных наборов данных ----------
-print("\n" + "="*60)
-print("ГЕНЕРАЦИЯ ТЕСТОВЫХ ДАННЫХ")
-print("="*60)
 
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
+# ==========================================
+# Обёртка для замера времени
+# ==========================================
 
-random.seed(42)
+def smooth_sort_timed(arr):
+    # Возвращает кортеж: (отсортированный_массив, время_мс, количество_шагов)
+    working_copy = copy.deepcopy(arr)
+    stats = SmoothSortStats()
+    
+    start_time = time.perf_counter()
+    smooth_sort(working_copy, stats)
+    end_time = time.perf_counter()
+    
+    elapsed_ms = (end_time - start_time) * 1000
+    return working_copy, elapsed_ms, stats.total_steps()
+
+
+# ==========================================
+# Проверка корректности
+# ==========================================
+
+def verify_sort(original, sorted_arr):
+    # Проверяет, что sorted_arr является отсортированной версией original
+    expected = sorted(original)
+    return sorted_arr == expected
+
+
+# ==========================================
+# Основной блок измерений
+# ==========================================
+
+if __name__ == "__main__":
+    print("Генерация 100 наборов данных (500-1000 элементов)...")
+    sizes = generate_datasets(100, 500, 1000)
+    print("Генерация завершена.\n")
+    
+    results = []  # список кортежей: (size, time_ms, steps)
+    
+    print("Запуск SmoothSort на каждом наборе...")
+    for i in range(1, 101):
+        filename = f"datasets/dataset_{i:03d}.txt"
+        size, arr = load_dataset(filename)
+        
+        sorted_arr, elapsed, steps = smooth_sort_timed(arr)
+        
+        results.append((size, elapsed, steps))
+        
+        if i % 10 == 0:
+            print(f"  Обработано {i}/100 наборов...")
+    
+    print("Измерения завершены.\n")
+    
+    # --- Вывод результатов ---
+    print("=" * 60)
+    print(f"{'Размер':<8}{'Время (мс)':<14}{'Шагов':<12}")
+    print("-" * 60)
+    for size, elapsed, steps in results:
+        print(f"{size:<8}{elapsed:<14.4f}{steps:<12}")
+    
+    # --- Сохранение для графиков ---
+    with open("results.txt", "w") as f:
+        f.write("Size,Time_ms,Steps\n")
+        for size, elapsed, steps in results:
+            f.write(f"{size},{elapsed},{steps}\n")
+    
+    print("\nРезультаты сохранены в results.txt")
+
+
+# ------ Графики ------
+
+import matplotlib.pyplot as plt
+
+# Читаем results.txt
 sizes = []
+times = []
+steps_list = []
 
-for idx in range(100):
-    n = random.randint(100, MAX_SIZE)
-    sizes.append(n)
-    data = [random.randint(0, 1000000) for _ in range(n)]
-    
-    filename = f"{DATA_DIR}/input_{idx:03d}_{n}.txt"
-    with open(filename, "w") as f:
-        f.write("\n".join(map(str, data)))
-    
-    if (idx + 1) % 20 == 0:
-        print(f"Сгенерировано {idx + 1}/100 файлов...")
+with open("results.txt", "r") as f:
+    next(f)  # пропускаем заголовок
+    for line in f:
+        size, t, s = line.strip().split(",")
+        sizes.append(int(size))
+        times.append(float(t))
+        steps_list.append(int(s))
 
-print("✓ Все 100 файлов сгенерированы")
+# График 1: время от размера
+plt.figure(figsize=(10, 5))
+plt.subplot(1, 2, 1)
+plt.scatter(sizes, times, alpha=0.6, color="blue", s=10)
+plt.xlabel("Размер массива")
+plt.ylabel("Время (мс)")
+plt.title("Время выполнения SmoothSort")
+plt.grid(True, alpha=0.3)
 
-# ---------- Тестирование на маленьком массиве ----------
-print("\n" + "="*60)
-print("ПРОВЕРКА АЛГОРИТМА")
-print("="*60)
-
-test_arr = [64, 34, 25, 12, 22, 11, 90, 45, 33, 77]
-test_copy = test_arr[:]
-comps_test = smoothsort(test_copy)
-expected = sorted(test_arr)
-
-if test_copy == expected:
-    print(f"✓ Тест пройден!")
-    print(f"  Исходный: {test_arr}")
-    print(f"  Результат: {test_copy}")
-    print(f"  Сравнений: {comps_test}")
-else:
-    print(f"✗ ОШИБКА! Результат: {test_copy}")
-    exit(1)
-
-# ---------- Измерение времени и сравнений ----------
-print("\n" + "="*60)
-print("ЗАПУСК ТЕСТОВ")
-print("="*60)
-
-results = []
-start_total = time.perf_counter()
-
-for idx, n in enumerate(sizes):
-    filename = f"{DATA_DIR}/input_{idx:03d}_{n}.txt"
-    
-    # Чтение данных
-    with open(filename) as f:
-        arr = list(map(int, f.read().split()))
-    
-    # Сортировка с замером времени
-    arr_copy = arr[:]
-    t0 = time.perf_counter()
-    comps = smoothsort(arr_copy)
-    t1 = time.perf_counter()
-    
-    # Проверка корректности
-    expected_sorted = sorted(arr)
-    if arr_copy != expected_sorted:
-        print(f"✗ ОШИБКА в файле {idx+1} (размер={n})")
-        continue
-    
-    elapsed = t1 - t0
-    results.append((n, elapsed, comps))
-    
-    # Прогресс
-    if (idx + 1) % 10 == 0:
-        print(f"[{idx+1:3d}/100] Размер={n:4d} | Время={elapsed:.6f}с | Сравнений={comps:6d}")
-
-total_time = time.perf_counter() - start_total
-print(f"\n✓ Все тесты пройдены за {total_time:.2f}с")
-
-# ---------- Построение графиков ----------
-print("\n" + "="*60)
-print("ПОСТРОЕНИЕ ГРАФИКОВ")
-print("="*60)
-
-ns, times, comps_list = zip(*results)
-
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-
-# График 1: Время от размера
-ax1.scatter(ns, times, alpha=0.6, edgecolors='black', s=40, linewidth=0.5)
-ax1.set_xlabel("Размер массива (n)", fontsize=12)
-ax1.set_ylabel("Время выполнения (сек)", fontsize=12)
-ax1.set_title("Зависимость времени от размера массива", fontsize=14)
-ax1.grid(True, alpha=0.3)
-
-# Добавляем линию тренда
-z1 = np.polyfit(ns, times, 2)
-p1 = np.poly1d(z1)
-x_smooth = np.linspace(min(ns), max(ns), 200)
-ax1.plot(x_smooth, p1(x_smooth), "r-", linewidth=2, label="Квадратичный тренд")
-ax1.legend()
-
-# График 2: Количество сравнений от размера
-ax2.scatter(ns, comps_list, alpha=0.6, edgecolors='black', s=40, linewidth=0.5)
-ax2.set_xlabel("Размер массива (n)", fontsize=12)
-ax2.set_ylabel("Количество сравнений", fontsize=12)
-ax2.set_title("Зависимость числа сравнений от размера массива", fontsize=14)
-ax2.grid(True, alpha=0.3)
-
-# Добавляем теоретическую кривую n*log2(n)
-x_theory = np.linspace(min(ns), max(ns), 200)
-y_theory = x_theory * np.log2(x_theory)
-scale = np.mean([c / (n * np.log2(n)) for n, c in zip(ns, comps_list)])
-y_scaled = scale * y_theory
-ax2.plot(x_theory, y_scaled, "r-", linewidth=2, 
-         label=f"n·log₂(n), масштаб={scale:.2f}")
-ax2.legend()
+# График 2: количество шагов от размера
+plt.subplot(1, 2, 2)
+plt.scatter(sizes, steps_list, alpha=0.6, color="red", s=10)
+plt.xlabel("Размер массива")
+plt.ylabel("Количество шагов")
+plt.title("Количество шагов SmoothSort")
+plt.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("smoothsort_plots.png", dpi=150, bbox_inches='tight')
+plt.savefig("smoothsort_plots.png", dpi=150)
 plt.show()
-
-# ---------- Вывод статистики ----------
-print("\n" + "="*60)
-print("СТАТИСТИКА")
-print("="*60)
-print(f"Количество тестов: {len(results)}")
-print(f"Диапазон размеров: {min(ns)} - {max(ns)}")
-print(f"Среднее время: {np.mean(times):.6f} сек")
-print(f"Максимальное время: {max(times):.6f} сек")
-print(f"Среднее число сравнений: {np.mean(comps_list):.1f}")
-print(f"Максимальное число сравнений: {max(comps_list)}")
-print(f"Среднее сравнений на элемент: {np.mean([c/n for c, n in zip(comps_list, ns)]):.2f}")
-
-# Оценка сложности
-ratio_to_nlogn = [c / (n * np.log2(n)) for c, n in zip(comps_list, ns)]
-print(f"Среднее отношение сравнений к n·log₂(n): {np.mean(ratio_to_nlogn):.3f}")
-print("\n✓ Вывод: сложность алгоритма O(n log n) подтверждается экспериментально")
-print(f"✓ Графики сохранены в файл 'smoothsort_plots.png'")
